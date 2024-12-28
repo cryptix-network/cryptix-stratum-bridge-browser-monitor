@@ -188,7 +188,7 @@ def fetch_metrics():
                             f.write(f'<tr><td>{metric_name}</td><td id="{metric_id}">{value}</td></tr>')
                         f.write('</tbody></table>')
                     f.write('</div>')
-                f.write('</body><div class="footer" style="color: #6bcf54; margin-top: 30px; align: right;">Donate Hotfix: cryptix:qphcyemx3vfzem4pwalx0r5r3m289x8zt9g4z6gz4d0lc0p3zuv2cay3unnyf</div></html>')
+                f.write('</body><div class="footer" style="color: #6bcf54; margin-top: 30px; align: right;">Donate Hotfix: cryptix:qrjefk2r8wp607rmyvxmgjansqcwugjazpu2kk2r7057gltxetdvk8gl9fs0w</div></html>')
         else:
             print('Failed to fetch metrics')
         time.sleep(10)
