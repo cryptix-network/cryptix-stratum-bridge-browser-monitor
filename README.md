@@ -7,7 +7,7 @@ Required Python:
 
 Download Release v.1.1.0:
 
-    https://github.com/HNP-Hotfix/Cryptix-SPR-Bridge-Browser-Interface/releases/tag/Stable
+    https://github.com/HNP-Hotfix/Cryptix-CYTX-Bridge-Browser-Interface/releases/tag/Stable
 
 Instructions:
 
