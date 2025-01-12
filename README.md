@@ -5,10 +5,6 @@ Required Python:
     Windows: https://www.python.org/downloads/windows/
     Linux: https://www.python.org/downloads/source/
 
-Download Release v.1.1.0:
-
-    https://github.com/HNP-Hotfix/Cryptix-CYTX-Bridge-Browser-Interface/releases/tag/Stable
-
 Instructions:
 
     Install Python and extract the downloaded ZIP file.
@@ -34,5 +30,3 @@ Open the Browser:
     You can open the browser with this address: localhost or localhost:80
 
 If you want to open it from other devices on the network: Use the IP address of the device. Example: 192.168.2.1 or 192.168.2.1:80
-
-Donate Hotfix: cryptix:qphcyemx3vfzem4pwalx0r5r3m289x8zt9g4z6gz4d0lc0p3zuv2cay3unnyf
