@@ -1,4 +1,4 @@
-HNP Hotfix Cryptix Bridge Browser Interface
+Cryptix Bridge Browser Interface
 
 Required Python:
 
