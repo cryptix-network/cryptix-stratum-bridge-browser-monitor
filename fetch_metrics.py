@@ -4,12 +4,12 @@ from threading import Thread
 from collections import defaultdict
 
 METRIC_NAMES = {
-    "spr_blocks_mined": "Blocks Mined",
-    "spr_valid_share_counter": "Valid Share",
-    "spr_worker_errors": "Worker Errors",
-    "spr_invalid_share_counter": "Invalid Share",
-    "spr_valid_share_diff_counter": "Valid Share Difficulty",
-    "spr_worker_job_counter": "Job Counter"
+    "cytx_blocks_mined": "Blocks Mined",
+    "cytx_valid_share_counter": "Valid Share",
+    "cytx_worker_errors": "Worker Errors",
+    "cytx_invalid_share_counter": "Invalid Share",
+    "cytx_valid_share_diff_counter": "Valid Share Difficulty",
+    "cytx_worker_job_counter": "Job Counter"
 }
 
 METRIC_ORDER = [
@@ -40,9 +40,9 @@ def fetch_metrics():
                 if len(parts) == 2:
                     metric, value = parts
                     metric_base = metric.split('{')[0]
-                    if metric_base == "spr_estimated_network_hashrate_gauge":
+                    if metric_base == "cytx_estimated_network_hashrate_gauge":
                         network_hashrate = int(float(value))
-                    elif metric_base == "spr_network_difficulty_gauge":
+                    elif metric_base == "cytx_network_difficulty_gauge":
                         network_difficulty = int(float(value))
                     metric_name = METRIC_NAMES.get(metric_base, None)
                     if not metric_name:
@@ -67,7 +67,7 @@ def fetch_metrics():
                             devices_by_wallet[wallet].add(key)
 
             with open('metrics.html', 'w', encoding='utf-8') as f:
-                f.write('<html><head><title>Hotfix Solo Pool</title>')
+                f.write('<html><head><title>Cryptix Pool</title>')
                 f.write('<style>')
                 f.write('body { font-family: Arial, sans-serif; margin: 20px; }')
                 f.write('h1, h2 { color: #333; }')
@@ -118,7 +118,7 @@ def fetch_metrics():
                 f.write('}')
                 f.write('</script>')
                 f.write('</head><body>')
-                f.write('<h1>HNP Hotfix Cryptix Bridge Browser Interface <span id="last-updated" style="font-size: 0.6em; margin-left: 20px;"></span></h1>')
+                f.write('<h1Cryptix Bridge Browser Interface <span id="last-updated" style="font-size: 0.6em; margin-left: 20px;"></span></h1>')
                 
                 # Convert network_hashrate and network_difficulty to MH/s and display as integers
                 network_hashrate_mhs = int(network_hashrate / 1e6)
@@ -188,7 +188,7 @@ def fetch_metrics():
                             f.write(f'<tr><td>{metric_name}</td><td id="{metric_id}">{value}</td></tr>')
                         f.write('</tbody></table>')
                     f.write('</div>')
-                f.write('</body><div class="footer" style="color: #6bcf54; margin-top: 30px; align: right;">Donate Hotfix: cryptix:qrjefk2r8wp607rmyvxmgjansqcwugjazpu2kk2r7057gltxetdvk8gl9fs0w</div></html>')
+                f.write('</body><div class="footer" style="color: #6bcf54; margin-top: 30px; align: right;">Donate Cryptis cryptix:qrjefk2r8wp607rmyvxmgjansqcwugjazpu2kk2r7057gltxetdvk8gl9fs0w</div></html>')
         else:
             print('Failed to fetch metrics')
         time.sleep(10)
