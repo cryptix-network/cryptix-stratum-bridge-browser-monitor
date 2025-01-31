@@ -10,11 +10,6 @@ Instructions:
     Install Python and extract the downloaded ZIP file.
 
 For Windows:
-
-    Edit the paths in the BAT file:
-        C:\Users\USERNAME\Path-to-Folder\web (this is the path to the downloaded folder)
-        C:\Users\USERNAME\AppData\Local\Programs\Python\Python312\python.exe fetch_metrics.py (this is the path to the installed Python)
-
     Start the BAT file.
 
 For Linux:
