@@ -4,12 +4,12 @@ from threading import Thread
 from collections import defaultdict
 
 METRIC_NAMES = {
-    "cytx_blocks_mined": "Blocks Mined",
-    "cytx_valid_share_counter": "Valid Share",
-    "cytx_worker_errors": "Worker Errors",
-    "cytx_invalid_share_counter": "Invalid Share",
-    "cytx_valid_share_diff_counter": "Valid Share Difficulty",
-    "cytx_worker_job_counter": "Job Counter"
+    "py_blocks_mined": "Blocks Mined",
+    "py_valid_share_counter": "Valid Share",
+    "py_worker_errors": "Worker Errors",
+    "py_invalid_share_counter": "Invalid Share",
+    "py_valid_share_diff_counter": "Valid Share Difficulty",
+    "py_worker_job_counter": "Job Counter"
 }
 
 METRIC_ORDER = [
@@ -40,9 +40,9 @@ def fetch_metrics():
                 if len(parts) == 2:
                     metric, value = parts
                     metric_base = metric.split('{')[0]
-                    if metric_base == "cytx_estimated_network_hashrate_gauge":
+                    if metric_base == "py_estimated_network_hashrate_gauge":
                         network_hashrate = int(float(value))
-                    elif metric_base == "cytx_network_difficulty_gauge":
+                    elif metric_base == "py_network_difficulty_gauge":
                         network_difficulty = int(float(value))
                     metric_name = METRIC_NAMES.get(metric_base, None)
                     if not metric_name:
