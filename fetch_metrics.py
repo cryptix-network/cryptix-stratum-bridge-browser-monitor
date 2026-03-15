@@ -1,218 +1,372 @@
-import requests
-import time
-from threading import Thread
-from collections import defaultdict
-from http.server import SimpleHTTPRequestHandler, HTTPServer
-from socketserver import ThreadingMixIn
+#!/usr/bin/env python3
+"""Cryptix Stratum Bridge browser monitor server.
+"""
 
-METRIC_NAMES = {
-    "py_blocpy_mined": "Blocks Mined",
-    "py_valid_share_counter": "Valid Share",
-    "py_worker_errors": "Worker Errors",
-    "py_invalid_share_counter": "Invalid Share",
-    "py_valid_share_diff_counter": "Valid Share Difficulty",
-    "py_worker_job_counter": "Job Counter"
+from __future__ import annotations
+
+import argparse
+import copy
+import json
+import logging
+import os
+import re
+import threading
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+from urllib.parse import urlparse
+
+
+METRIC_LINE_RE = re.compile(r"^([a-zA-Z_:][a-zA-Z0-9_:]*)(\{[^}]*\})?\s+(.+)$")
+LABEL_RE = re.compile(r'([a-zA-Z_][a-zA-Z0-9_]*)="((?:[^"\\]|\\.)*)"')
+
+
+NETWORK_METRICS = {
+    "py_estimated_network_hashrate_gauge": ("hashrate_hs", float),
+    "py_network_difficulty_gauge": ("difficulty", float),
+    "py_network_block_count": ("block_count", int),
 }
 
-METRIC_ORDER = [
-    "Blocks Mined",
-    "Valid Share",
-    "Invalid Share",
-    "Max Valid Share Difficulty",
-    "Job Counter"
-]
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
-class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
-    pass
+def parse_metric_labels(raw_labels: str) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    for key, raw_value in LABEL_RE.findall(raw_labels):
+        labels[key] = bytes(raw_value, "utf-8").decode("unicode_escape")
+    return labels
 
-def fetch_metrics():
-    while True:
+
+def safe_int(value: float) -> int:
+    if value != value:  # NaN guard
+        return 0
+    return int(value)
+
+
+def format_worker_key(worker: str, ip: str) -> str:
+    clean_worker = worker or "anonymous"
+    clean_ip = ip or "unknown"
+    return f"{clean_worker}@{clean_ip}"
+
+
+def build_empty_snapshot(metrics_url: str, status: str, error: str | None = None) -> dict[str, Any]:
+    return {
+        "status": status,
+        "error": error,
+        "bridge_metrics_url": metrics_url,
+        "updated_at_unix": int(time.time()),
+        "updated_at_iso": utc_now_iso(),
+        "network": {
+            "hashrate_hs": 0.0,
+            "difficulty": 0.0,
+            "block_count": 0,
+        },
+        "totals": {
+            "blocks_mined": 0,
+            "valid_shares": 0,
+            "invalid_shares": 0,
+            "jobs": 0,
+            "disconnects": 0,
+            "share_difficulty": 0.0,
+        },
+        "wallet_count": 0,
+        "wallets": [],
+    }
+
+
+def parse_prometheus_snapshot(text: str, metrics_url: str) -> dict[str, Any]:
+    snapshot = build_empty_snapshot(metrics_url, status="online")
+    wallets: dict[str, dict[str, Any]] = {}
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        metric_match = METRIC_LINE_RE.match(line)
+        if not metric_match:
+            continue
+
+        metric_name = metric_match.group(1)
+        metric_labels_raw = metric_match.group(2) or ""
+        raw_value = metric_match.group(3)
+
         try:
-            url = 'http://localhost:2114/metrics'
-            response = requests.get(url)
-            if response.status_code == 200:
-                metrics_by_wallet_device = defaultdict(lambda: defaultdict(dict))
-                total_metrics_by_wallet = defaultdict(lambda: defaultdict(int))
-                max_difficulty_by_wallet = defaultdict(int)
-                blocks_mined_by_wallet = defaultdict(int)
-                devices_by_wallet = defaultdict(set)
-                network_hashrate = 0.0
-                network_difficulty = 0.0
+            value = float(raw_value)
+        except ValueError:
+            continue
 
-                for line in response.text.split('\n'):
-                    if line.startswith('#') or not line.strip():
-                        continue
-                    parts = line.split(' ')
-                    if len(parts) == 2:
-                        metric, value = parts
-                        metric_base = metric.split('{')[0]
-                        if metric_base == "py_estimated_network_hashrate_gauge":
-                            network_hashrate = int(float(value))
-                        elif metric_base == "py_network_difficulty_gauge":
-                            network_difficulty = int(float(value))
-                        metric_name = METRIC_NAMES.get(metric_base, None)
-                        if not metric_name:
-                            continue
+        network_mapping = NETWORK_METRICS.get(metric_name)
+        if network_mapping is not None:
+            target_key, caster = network_mapping
+            snapshot["network"][target_key] = caster(value)
+            continue
 
-                        if '{' in metric:
-                            metric_info = metric.split('{')[1].split('}')[0]
-                            details = {k: v.strip('"') for k, v in (item.split('=') for item in metric_info.split(','))}
-                            wallet = details.get('wallet')
-                            device = details.get('worker', 'Unknown')
-                            ip = details.get('ip', 'Unknown')
+        labels = parse_metric_labels(metric_labels_raw)
+        wallet = labels.get("wallet", "").strip()
+        if not wallet:
+            continue
 
-                            if wallet and device != 'tnn-dev' and device != 'Unknown':
-                                key = f"{device} ({ip})"
-                                metrics_by_wallet_device[wallet][key][metric_name] = int(float(value))
-                                if metric_name != "Valid Share Difficulty":
-                                    total_metrics_by_wallet[wallet][metric_name] += int(float(value))
-                                if metric_name == "Valid Share Difficulty":
-                                    max_difficulty_by_wallet[wallet] = max(max_difficulty_by_wallet[wallet], int(float(value)))
-                                if metric_name == "Blocks Mined":
-                                    blocks_mined_by_wallet[wallet] += int(float(value))
-                                devices_by_wallet[wallet].add(key)
+        worker = labels.get("worker", "").strip() or "anonymous"
+        miner = labels.get("miner", "").strip() or "unknown"
+        ip = labels.get("ip", "").strip() or "unknown"
+        worker_key = format_worker_key(worker, ip)
 
-                with open('metrics.html', 'w', encoding='utf-8') as f:
-                    f.write('<html><head><title>Cryptix Pool</title>')
-                    f.write('<style>')
-                    f.write('body { font-family: Arial, sans-serif; margin: 20px; }')
-                    f.write('h1, h2 { color: #333; }')
-                    f.write('table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }')
-                    f.write('th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }')
-                    f.write('th { background-color: #f2f2f2; }')
-                    f.write('tr:nth-child(even) { background-color: #f9f9f9; }')
-                    f.write('tr:hover { background-color: #f1f1f1; }')
-                    f.write('.tab { cursor: pointer; padding: 10px; background-color: #fff; border: 1px solid #ddd; margin-top: 5px; }')
-                    f.write('.tab-content { display: none; padding: 10px; border: 1px solid #ddd; border-top: none; }')
-                    f.write('.total_metrics_style { padding: 20px; border: 1px solid #ccc; margin-top: 20px; }')
-                    f.write('.network-info { display: flex; gap: 10px; margin-bottom: 20px; }')
-                    f.write('.network-info div { padding: 10px 20px; background-color: #007bff; color: white; border-radius: 5px; cursor: pointer; }')
-                    f.write('.canvas-container { display: flex; gap: 20px; }')
-                    f.write('.online-indicator { color: green; margin-left: 10px; }')  
-                    f.write('</style>')
-                    f.write('<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>')
-                    f.write('<script>')
-                    f.write('function toggleTabContent(id) {')
-                    f.write('    var content = document.getElementById(id);')
-                    f.write('    if (content.style.display === "none" || content.style.display === "") {')
-                    f.write('        content.style.display = "block";')
-                    f.write('    } else {')
-                    f.write('        content.style.display = "none";')
-                    f.write('    }')
-                    f.write('}')
-                    f.write('function renderChart(ctx, labels, data, title) {')
-                    f.write('    new Chart(ctx, {')
-                    f.write('        type: "bar",')
-                    f.write('        data: {')
-                    f.write('            labels: labels,')
-                    f.write('            datasets: [{')
-                    f.write('                label: title,')
-                    f.write('                data: data,')
-                    f.write('                backgroundColor: "rgba(75, 192, 192, 0.2)",')
-                    f.write('                borderColor: "rgba(75, 192, 192, 1)",')
-                    f.write('                borderWidth: 1')
-                    f.write('            }]')
-                    f.write('        },')
-                    f.write('        options: {')
-                    f.write('            scales: {')
-                    f.write('                y: {')
-                    f.write('                    beginAtZero: true')
-                    f.write('                }')
-                    f.write('            }')
-                    f.write('        }')
-                    f.write('    });')
-                    f.write('}')
-                    f.write('</script>')
-                    f.write('</head><body>')
-                    f.write('<h1>Cryptix Bridge Browser Interface <span id="last-updated" style="font-size: 0.6em; margin-left: 20px;"></span></h1>')
+        wallet_entry = wallets.setdefault(
+            wallet,
+            {
+                "wallet": wallet,
+                "totals": {
+                    "blocks_mined": 0,
+                    "valid_shares": 0,
+                    "invalid_shares": 0,
+                    "jobs": 0,
+                    "disconnects": 0,
+                    "share_difficulty": 0.0,
+                    "invalid_by_type": {},
+                },
+                "workers": {},
+            },
+        )
 
-                    # Convert network_hashrate and network_difficulty to MH/s and display as integers
-                    network_hashrate_mhs = int(network_hashrate / 1e6)
-                    network_difficulty_mhs = int(network_difficulty / 1e6)
+        worker_entry = wallet_entry["workers"].setdefault(
+            worker_key,
+            {
+                "worker": worker,
+                "ip": ip,
+                "miner": miner,
+                "blocks_mined": 0,
+                "valid_shares": 0,
+                "invalid_shares": 0,
+                "jobs": 0,
+                "disconnects": 0,
+                "share_difficulty": 0.0,
+                "invalid_by_type": {},
+            },
+        )
 
-                    # Write network hashrate and difficulty as styled buttons
-                    f.write('<div class="network-info">')
-                    f.write(f'<div>Network Hashrate: {network_hashrate_mhs} MH/s</div>')
-                    f.write(f'<div>Network Difficulty: {network_difficulty_mhs} M</div>')
-                    f.write('</div>')
+        int_value = safe_int(value)
+        if metric_name == "py_blocpy_mined":
+            worker_entry["blocks_mined"] = int_value
+            wallet_entry["totals"]["blocks_mined"] += int_value
+        elif metric_name == "py_valid_share_counter":
+            worker_entry["valid_shares"] = int_value
+            wallet_entry["totals"]["valid_shares"] += int_value
+        elif metric_name == "py_worker_job_counter":
+            worker_entry["jobs"] = int_value
+            wallet_entry["totals"]["jobs"] += int_value
+        elif metric_name == "py_worker_disconnect_counter":
+            worker_entry["disconnects"] = int_value
+            wallet_entry["totals"]["disconnects"] += int_value
+        elif metric_name == "py_valid_share_diff_counter":
+            worker_entry["share_difficulty"] = float(value)
+            wallet_entry["totals"]["share_difficulty"] += float(value)
+        elif metric_name == "py_invalid_share_counter":
+            invalid_type = labels.get("type", "invalid")
+            worker_entry["invalid_by_type"][invalid_type] = int_value
+            worker_entry["invalid_shares"] += int_value
+            wallet_entry["totals"]["invalid_shares"] += int_value
+            current = wallet_entry["totals"]["invalid_by_type"].get(invalid_type, 0)
+            wallet_entry["totals"]["invalid_by_type"][invalid_type] = current + int_value
 
-                    for wallet, totals in total_metrics_by_wallet.items():
-                        f.write(f'<div class="total_metrics_style" id="{wallet}"><h3>Total Metrics for Wallet: {wallet}<span class="online-indicator" id="{wallet}-online" style="display:none;">ONLINE</span></h3>')  # Add ONLINE indicator
-                        f.write('<div class="canvas-container">')
+    wallet_list = []
+    for wallet_id in sorted(wallets.keys()):
+        wallet_entry = wallets[wallet_id]
+        workers = sorted(wallet_entry["workers"].values(), key=lambda w: (w["worker"], w["ip"]))
+        wallet_entry["workers"] = workers
 
-                        # General metrics except "Blocks Mined", "Valid Share Difficulty", and "Job Counter"
-                        general_labels = [metric_name for metric_name in totals.keys() if metric_name not in ["Blocks Mined", "Valid Share Difficulty", "Job Counter"]]
-                        general_data = [totals[metric_name] for metric_name in general_labels]
-                        f.write(f'<canvas id="{wallet}-chart" width="400" height="200"></canvas>')
-                        f.write('<script>')
-                        f.write(f'var ctx = document.getElementById("{wallet}-chart").getContext("2d");')
-                        f.write(f'var labels = {general_labels};')
-                        f.write(f'var data = {general_data};')
-                        f.write('renderChart(ctx, labels, data, "Metrics");')
-                        f.write('</script>')
+        wallet_entry["worker_count"] = len(workers)
+        valid = wallet_entry["totals"]["valid_shares"]
+        invalid = wallet_entry["totals"]["invalid_shares"]
+        total = valid + invalid
+        wallet_entry["acceptance_rate"] = 0.0 if total == 0 else round((valid / total) * 100.0, 2)
 
-                        f.write(f'<canvas id="{wallet}-blocks-chart" width="400" height="200"></canvas>')
-                        f.write('<script>')
-                        f.write(f'var ctxBlocks = document.getElementById("{wallet}-blocks-chart").getContext("2d");')
-                        f.write(f'var blocksLabels = ["Blocks Mined"];')
-                        f.write(f'var blocksData = [{blocks_mined_by_wallet[wallet]}];')
-                        f.write('renderChart(ctxBlocks, blocksLabels, blocksData, "Blocks Mined");')
-                        f.write('</script>')
+        snapshot["totals"]["blocks_mined"] += wallet_entry["totals"]["blocks_mined"]
+        snapshot["totals"]["valid_shares"] += valid
+        snapshot["totals"]["invalid_shares"] += invalid
+        snapshot["totals"]["jobs"] += wallet_entry["totals"]["jobs"]
+        snapshot["totals"]["disconnects"] += wallet_entry["totals"]["disconnects"]
+        snapshot["totals"]["share_difficulty"] += wallet_entry["totals"]["share_difficulty"]
+        wallet_list.append(wallet_entry)
 
-                        f.write(f'<canvas id="{wallet}-difficulty-chart" width="400" height="200"></canvas>')
-                        f.write('<script>')
-                        f.write(f'var ctxDifficulty = document.getElementById("{wallet}-difficulty-chart").getContext("2d");')
-                        f.write(f'var difficultyLabels = ["Max Valid Share Difficulty"];')
-                        f.write(f'var difficultyData = [{max_difficulty_by_wallet[wallet]}];')
-                        f.write('renderChart(ctxDifficulty, difficultyLabels, difficultyData, "Max Valid Share Difficulty");')
-                        f.write('</script>')
+    snapshot["wallets"] = wallet_list
+    snapshot["wallet_count"] = len(wallet_list)
+    snapshot["updated_at_unix"] = int(time.time())
+    snapshot["updated_at_iso"] = utc_now_iso()
+    return snapshot
 
-                        f.write('</div>')
-                        f.write('<table><thead><tr><th>Metric</th><th>Total Value</th></tr></thead><tbody>')
 
-                        for metric_name in METRIC_ORDER:
-                            if metric_name == "Max Valid Share Difficulty":
-                                metric_value = max_difficulty_by_wallet[wallet]
-                            else:
-                                metric_value = totals.get(metric_name, 0)
-                            metric_id = f"{wallet}-{metric_name.replace(' ', '-')}"
-                            f.write(f'<tr><td>{metric_name}</td><td id="{metric_id}">{metric_value}</td></tr>')
+def fetch_metrics_text(url: str, timeout: float) -> str:
+    request = urllib.request.Request(url=url, method="GET")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        if response.status != 200:
+            raise RuntimeError(f"bridge returned HTTP {response.status}")
+        return response.read().decode("utf-8", errors="replace")
 
-                        f.write('</tbody></table>')
 
-                        f.write('<h2>Device Metrics</h2>')
-                        for device_key, device_metrics in metrics_by_wallet_device[wallet].items():
-                            f.write(f'<button class="tab" onclick="toggleTabContent(\'{device_key}\')">Show Metrics for {device_key}</button>')
-                            f.write(f'<div id="{device_key}" class="tab-content">')
-                            f.write('<table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>')
-                            for metric_name, value in device_metrics.items():
-                                f.write(f'<tr><td>{metric_name}</td><td>{value}</td></tr>')
-                            f.write('</tbody></table>')
-                            f.write('</div>')
+class MonitorState:
+    def __init__(self, metrics_url: str) -> None:
+        self._lock = threading.Lock()
+        self._snapshot = build_empty_snapshot(metrics_url, status="starting")
 
-                        f.write('</div>')
+    def set_snapshot(self, snapshot: dict[str, Any]) -> None:
+        with self._lock:
+            self._snapshot = snapshot
 
-                    f.write('<script>document.getElementById("last-updated").textContent = "Last updated: " + new Date().toLocaleString();</script>')
-                    f.write('</body></html>')
+    def set_error(self, error_message: str) -> None:
+        with self._lock:
+            snapshot = copy.deepcopy(self._snapshot)
+            snapshot["status"] = "offline"
+            snapshot["error"] = error_message
+            snapshot["updated_at_unix"] = int(time.time())
+            snapshot["updated_at_iso"] = utc_now_iso()
+            self._snapshot = snapshot
 
-            else:
-                print('Fehler beim Abrufen der Metriken', response.status_code)
-        except requests.exceptions.RequestException as e:
-            print(f"Fehler beim Abrufen der Metriken: {e}")
-        time.sleep(10)
+    def get_snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            return copy.deepcopy(self._snapshot)
 
-def start_server():
-    server_address = ('', 80)
-    httpd = ThreadedHTTPServer(server_address, SimpleHTTPRequestHandler)
-    print('Starte den Server auf Port 80...')
-    httpd.serve_forever()
+
+def collect_loop(
+    state: MonitorState,
+    metrics_url: str,
+    interval_seconds: float,
+    request_timeout: float,
+    stop_event: threading.Event,
+) -> None:
+    while not stop_event.is_set():
+        try:
+            raw_text = fetch_metrics_text(metrics_url, timeout=request_timeout)
+            snapshot = parse_prometheus_snapshot(raw_text, metrics_url=metrics_url)
+            state.set_snapshot(snapshot)
+        except (urllib.error.URLError, TimeoutError, RuntimeError, OSError) as exc:
+            state.set_error(str(exc))
+            logging.warning("Failed to fetch bridge metrics: %s", exc)
+        except Exception as exc:  # broad catch to keep monitor alive
+            state.set_error(str(exc))
+            logging.exception("Unexpected monitor error: %s", exc)
+
+        stop_event.wait(interval_seconds)
+
+
+def build_handler(static_dir: Path, state: MonitorState):
+    class MonitorHandler(SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=str(static_dir), **kwargs)
+
+        def do_GET(self) -> None:
+            parsed = urlparse(self.path)
+            if parsed.path == "/api/snapshot":
+                self._write_json(state.get_snapshot(), status_code=200)
+                return
+            if parsed.path == "/api/health":
+                payload = state.get_snapshot()
+                status_code = 200 if payload.get("status") == "online" else 503
+                self._write_json({"status": payload.get("status"), "error": payload.get("error")}, status_code)
+                return
+            super().do_GET()
+
+        def log_message(self, format_: str, *args):
+            logging.info("%s - %s", self.address_string(), format_ % args)
+
+        def _write_json(self, payload: dict[str, Any], status_code: int) -> None:
+            data = json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+            self.send_response(status_code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+    return MonitorHandler
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Cryptix Stratum Bridge browser monitor")
+    parser.add_argument(
+        "--metrics-url",
+        default=os.getenv("BRIDGE_METRICS_URL", "http://127.0.0.1:2114/metrics"),
+        help="Bridge Prometheus metrics URL (default: http://127.0.0.1:2114/metrics)",
+    )
+    parser.add_argument(
+        "--host",
+        default=os.getenv("MONITOR_HOST", "0.0.0.0"),
+        help="Bind host for monitor web server (default: 0.0.0.0)",
+    )
+    parser.add_argument(
+        "--port",
+        default=int(os.getenv("MONITOR_PORT", "8080")),
+        type=int,
+        help="Bind port for monitor web server (default: 8080)",
+    )
+    parser.add_argument(
+        "--interval",
+        default=float(os.getenv("MONITOR_INTERVAL_SECONDS", "5")),
+        type=float,
+        help="Polling interval in seconds for bridge metrics (default: 5)",
+    )
+    parser.add_argument(
+        "--timeout",
+        default=float(os.getenv("MONITOR_REQUEST_TIMEOUT_SECONDS", "4")),
+        type=float,
+        help="HTTP timeout in seconds when fetching bridge metrics (default: 4)",
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Fetch bridge metrics once and print parsed JSON to stdout",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+    if args.once:
+        raw = fetch_metrics_text(args.metrics_url, timeout=args.timeout)
+        snapshot = parse_prometheus_snapshot(raw, metrics_url=args.metrics_url)
+        print(json.dumps(snapshot, indent=2))
+        return
+
+    static_dir = Path(__file__).resolve().parent
+    state = MonitorState(metrics_url=args.metrics_url)
+    stop_event = threading.Event()
+
+    collector_thread = threading.Thread(
+        target=collect_loop,
+        kwargs={
+            "state": state,
+            "metrics_url": args.metrics_url,
+            "interval_seconds": max(args.interval, 1.0),
+            "request_timeout": max(args.timeout, 0.5),
+            "stop_event": stop_event,
+        },
+        daemon=True,
+        name="bridge-metrics-collector",
+    )
+    collector_thread.start()
+
+    handler = build_handler(static_dir=static_dir, state=state)
+    server = ThreadingHTTPServer((args.host, args.port), handler)
+    logging.info("Monitor UI:  http://%s:%d", args.host, args.port)
+    logging.info("Bridge URL:  %s", args.metrics_url)
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        logging.info("Shutting down monitor...")
+    finally:
+        stop_event.set()
+        server.shutdown()
+        server.server_close()
+
 
 if __name__ == "__main__":
-   
-    metrics_thread = Thread(target=fetch_metrics)
-    metrics_thread.daemon = True
-    metrics_thread.start()
-
-  
-    start_server()
+    main()

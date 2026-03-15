@@ -1,27 +1,51 @@
-Cryptix Bridge Browser Interface
+# Cryptix Stratum Bridge Browser Monitor
 
-Required Python:
+Modern browser dashboard for the `cryptix-stratum-bridge` Prometheus metrics endpoint.
 
-    Windows: https://www.python.org/downloads/windows/
-    Linux: https://www.python.org/downloads/source/
+## Requirements
 
-Instructions:
+- Python 3.9+ (tested with Python 3.14)
+- Running Cryptix Stratum Bridge with Prometheus metrics enabled
+  - Default expected endpoint: `http://127.0.0.1:2114/metrics`
 
-    Install Python and extract the downloaded ZIP file.
+## Quick Start
 
-For Windows:
-    Start the BAT file.
+### Windows
 
-For Linux:
+Run:
 
-    Edit the paths in the SH file:
-        cd /path/to/web (this is the path to the downloaded folder)
-        python3 /path/to/fetch_metrics.py (this is the path to the Python script)
+```bat
+start-windows.bat
+```
 
-    Make the SH file executable with the command: chmod +x /path/to/start_linux.sh Then start the script with: /path/to/start_linux.sh
+### Linux
 
-Open the Browser:
+Run:
 
-    You can open the browser with this address: localhost or localhost:80
+```bash
+chmod +x start-linux.sh
+./start-linux.sh
+```
 
-If you want to open it from other devices on the network: Use the IP address of the device. Example: 192.168.2.1 or 192.168.2.1:80
+## Manual Run
+
+```bash
+python3 fetch_metrics.py --host 0.0.0.0 --port 8080 --metrics-url http://127.0.0.1:2114/metrics --interval 5
+```
+
+## Options
+
+```text
+--metrics-url   Bridge Prometheus URL (default: http://127.0.0.1:2114/metrics)
+--host          Bind host for monitor server (default: 0.0.0.0)
+--port          Bind port for monitor server (default: 8080)
+--interval      Poll interval seconds (default: 5)
+--timeout       HTTP timeout seconds (default: 4)
+--once          Fetch once and print parsed JSON
+```
+
+## Endpoints
+
+- `/` dashboard UI
+- `/api/snapshot` parsed live metrics JSON
+- `/api/health` monitor health (`online` / `offline`)

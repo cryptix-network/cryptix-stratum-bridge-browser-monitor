@@ -1,13 +1,11 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Change directory to the web folder
-cd /path/to/web
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
-# Open the web browser to the specified URL
-xdg-open http://localhost:80 &
+MONITOR_PORT=8080
+BRIDGE_METRICS_URL="${BRIDGE_METRICS_URL:-http://127.0.0.1:2114/metrics}"
 
-# Execute the Python script
-python3 /path/to/fetch_metrics.py
-
-# Pause the script (Optional)
-read -p "Press Enter to continue..."
+xdg-open "http://127.0.0.1:${MONITOR_PORT}" >/dev/null 2>&1 || true
+python3 fetch_metrics.py --host 0.0.0.0 --port "${MONITOR_PORT}" --metrics-url "${BRIDGE_METRICS_URL}" --interval 5

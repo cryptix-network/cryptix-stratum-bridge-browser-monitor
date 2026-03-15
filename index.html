@@ -1,251 +1,973 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Cryptix Bridge Browser Monitor</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            background-color: #f8f9fa;
-        }
-		.blue-border {
-			border: 2px solid #6bcf54 !important;
-		}
-        .container {
-            max-width: 1400px;
-            width: 100%;
-            padding: 20px;
-            box-sizing: border-box;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            position: relative; /* Added for arrow positioning */
-        }
-        th {
-            background-color: #f2f2f2;
-        }
-        .tab {
-            cursor: pointer;
-            padding: 10px;
-            background-color: #fff;
-            border: 1px solid #ddd;
-            margin-top: 5px;
-        }
-        .tab-content {
-            display: none;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-top: none;
-        }
-        .canvas-container { 
-            display: flex; 
-            flex-wrap: wrap; 
-            gap: 20px; 
-        }
-        canvas { 
-            width: 400px !important; 
-            height: 200px !important; 
-        }
-        .wallet-container { 
-            background-color: #e0f7fa; 
-            padding: 20px; 
-            margin-bottom: 20px; 
-            border-radius: 10px; 
-        }
-        .arrow-up {
-            position: absolute;
-            top: 50%;
-            right: 10px;
-            width: 0; 
-            height: 0; 
-            border-left: 5px solid transparent;
-            border-right: 5px solid transparent;
-            border-bottom: 10px solid green;
-            display: none; /* Initially hidden */
-        }
-        .online-indicator {
-            color: green;
-            margin-left: 10px;
-            display: none;
-        }
-		
-		.total_metrics_style{
-            background-color: #fff;
-        }
-		
-		.tab-content {
-            background-color: #fff;
-        }
-		
-    </style>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script>
-        let previousMetrics = {};
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cryptix Bridge Monitor</title>
+  <meta name="theme-color" content="#0b0e13">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg-0: #050814;
+      --bg-1: #0c152b;
+      --bg-2: #121f38;
+      --card: rgba(11, 18, 36, 0.72);
+      --card-strong: rgba(11, 18, 36, 0.9);
+      --border: rgba(130, 196, 255, 0.2);
+      --border-soft: rgba(130, 196, 255, 0.12);
+      --text: #e8f0ff;
+      --muted: #9db0cc;
+      --accent: #53b8ff;
+      --accent-2: #2de5ac;
+      --good: #2fe19b;
+      --warn: #ffb84d;
+      --bad: #ff6f8d;
+      --shadow: 0 18px 38px rgba(2, 6, 16, 0.5);
+    }
 
-        function toggleTabContent(id) {
-            var content = document.getElementById(id);
-            if (content.style.display === "none" || content.style.display === "") {
-                content.style.display = "block";
-            } else {
-                content.style.display = "none";
-            }
-        }
+    * {
+      box-sizing: border-box;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(84, 172, 255, 0.72) rgba(10, 18, 34, 0.92);
+    }
 
-        async function fetchMetrics() {
-            try {
-                const response = await fetch('metrics.html');
-                const text = await response.text();
-                document.getElementById('metricsContainer').innerHTML = text;
-                var scripts = document.getElementById('metricsContainer').getElementsByTagName('script');
-                for (var i = 0; i < scripts.length; i++) {
-                    eval(scripts[i].innerText);
-                }
-                checkForIncreases();
-                updateTimestamp();
-            } catch (error) {
-                console.error('Fehler beim Abrufen der Metriken:', error);
-            }
-        }
+    *::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
 
-        function updateTimestamp() {
-            const now = new Date();
-            const formattedTime = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            document.getElementById('last-updated').innerText = `Last Updated: ${formattedTime}`;
-        }
+    *::-webkit-scrollbar-track {
+      background: rgba(10, 18, 34, 0.92);
+      border-radius: 999px;
+    }
 
-        function checkForIncreases() {
-            const tables = document.querySelectorAll('table tbody');
-            tables.forEach(table => {
-                const rows = table.querySelectorAll('tr');
-                rows.forEach(row => {
-                    const cells = row.querySelectorAll('td');
-                    if (cells.length === 2) {
-                        const metricName = cells[0].innerText;
-                        const metricValue = parseFloat(cells[1].innerText);
-                        const cellId = cells[1].id;
-                        
-                        const wallet = cellId.split('-')[0];
-                        const device = cellId.split('-')[1];
-                        
-                        if (!previousMetrics[wallet]) {
-                            previousMetrics[wallet] = {};
-                        }
-                        
-                        if (!previousMetrics[wallet][device]) {
-                            previousMetrics[wallet][device] = {};
-                        }
-                        
-                        if (!previousMetrics[wallet][device][metricName]) {
-                            previousMetrics[wallet][device][metricName] = metricValue;
-                        } else {
-                            if (metricValue > previousMetrics[wallet][device][metricName]) {
-                                showArrow(cells[1]);
-                                showOnlineIndicator(wallet);
-                            }
-                            previousMetrics[wallet][device][metricName] = metricValue;
-                        }
-                    }
-                });
-            });
-        }
+    *::-webkit-scrollbar-thumb {
+      background: linear-gradient(180deg, rgba(61, 156, 255, 0.95), rgba(45, 229, 172, 0.9));
+      border-radius: 999px;
+      border: 2px solid rgba(10, 18, 34, 0.92);
+    }
 
-        function showArrow(cell) {
-            const arrow = document.createElement('div');
-            arrow.classList.add('arrow-up');
-            cell.appendChild(arrow);
-            arrow.style.display = 'block';
-            setTimeout(() => {
-                arrow.style.display = 'none';
-                cell.removeChild(arrow);
-            }, 2000);
-        }
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      min-height: 100%;
+      color: var(--text);
+      font-family: "Bahnschrift", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(80vw 65vh at 12% 0%, rgba(44, 118, 255, 0.18), transparent 60%),
+        radial-gradient(75vw 60vh at 90% 8%, rgba(31, 212, 179, 0.15), transparent 62%),
+        linear-gradient(180deg, var(--bg-1), var(--bg-0) 56%, #04070f 100%);
+      overflow-x: hidden;
+    }
 
-        function showOnlineIndicator(wallet) {
-            const onlineIndicator = document.getElementById(`${wallet}-online`);
-            if (onlineIndicator) {
-                onlineIndicator.style.display = 'inline';
-                setTimeout(() => {
-                    onlineIndicator.style.display = 'none';
-                }, 90000); // 90 seconds
-            }
-        }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(120, 196, 255, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(120, 196, 255, 0.04) 1px, transparent 1px);
+      background-size: 42px 42px;
+      mask-image: radial-gradient(circle at center, black 24%, transparent 96%);
+    }
 
-        function startFetching() {
-            fetchMetrics();
-            setInterval(fetchMetrics, 10000);
-        }
-    </script>
-	<script>
-	function addBlueBorder(walletId) {
-    const walletElement = document.getElementById(walletId);
-		if (walletElement) {
-			walletElement.classList.add('blue-border');
-			setTimeout(() => {
-				walletElement.classList.remove('blue-border');
-			}, 180000); // 3 minutes
-		}
-	}
-	function checkForIncreases() {
-		const tables = document.querySelectorAll('table tbody');
-		tables.forEach(table => {
-			const rows = table.querySelectorAll('tr');
-			rows.forEach(row => {
-				const cells = row.querySelectorAll('td');
-				if (cells.length === 2) {
-					const metricName = cells[0].innerText;
-					const metricValue = parseFloat(cells[1].innerText);
-					const cellId = cells[1].id;
+    .layout {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 1460px;
+      margin: 0 auto;
+      padding: clamp(12px, 1.4vw, 20px) clamp(10px, 1.8vw, 24px) 30px;
+      display: grid;
+      gap: 12px;
+    }
 
-					const wallet = cellId.split('-')[0];
-					const device = cellId.split('-')[1];
+    .card {
+      border: 1px solid var(--border-soft);
+      background: linear-gradient(170deg, rgba(20, 33, 62, 0.8), rgba(9, 14, 28, 0.8));
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(8px);
+    }
 
-					if (!previousMetrics[wallet]) {
-						previousMetrics[wallet] = {};
-					}
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 14px;
+      border-color: var(--border);
+      background: linear-gradient(165deg, rgba(16, 29, 54, 0.93), rgba(8, 14, 28, 0.9));
+      min-width: 0;
+    }
 
-					if (!previousMetrics[wallet][device]) {
-						previousMetrics[wallet][device] = {};
-					}
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
 
-					if (!previousMetrics[wallet][device][metricName]) {
-						previousMetrics[wallet][device][metricName] = metricValue;
-					} else {
-						if (metricValue > previousMetrics[wallet][device][metricName]) {
-							showArrow(cells[1]);
-							showOnlineIndicator(wallet);
-							if (metricName === "Blocks Mined") {  // Check if the metric is "Blocks Mined"
-								addBlueBorder(`${wallet}`);
-							}
-						}
-						previousMetrics[wallet][device][metricName] = metricValue;
-					}
-				}
-			});
-		});
-	}
-	function testBlueBorder() {
-		const walletId = document.getElementById('wallet-id-input').value;
-		if (walletId) {
-			addBlueBorder(walletId);
-		} else {
-			alert("Please enter a Wallet ID");
-		}
-	}
+    .brand-logo {
+      display: block;
+      width: auto;
+      height: 56px;
+      object-fit: contain;
+      filter: drop-shadow(0 0 12px rgba(42, 197, 255, 0.35));
+    }
 
-	</script>
+    .brand-copy h1 {
+      margin: 0;
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: 0.01em;
+    }
+
+    .brand-copy p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      max-width: 66vw;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .status-group {
+      display: grid;
+      justify-items: end;
+      gap: 7px;
+      min-width: 0;
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+      max-width: 100%;
+    }
+
+    .pill {
+      border: 1px solid var(--border-soft);
+      background: rgba(94, 168, 255, 0.14);
+      color: #d6ebff;
+      border-radius: 999px;
+      padding: 6px 11px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      line-height: 1;
+    }
+
+    .pill.ok {
+      color: #bff9de;
+      border-color: rgba(47, 225, 155, 0.42);
+      background: rgba(47, 225, 155, 0.14);
+    }
+
+    .pill.warn {
+      color: #ffe2ac;
+      border-color: rgba(255, 184, 77, 0.4);
+      background: rgba(255, 184, 77, 0.15);
+    }
+
+    .pill.bad {
+      color: #ffd0dc;
+      border-color: rgba(255, 111, 141, 0.42);
+      background: rgba(255, 111, 141, 0.15);
+    }
+
+    .status-note {
+      color: var(--muted);
+      font-size: 12px;
+      font-family: "Cascadia Mono", "Consolas", monospace;
+      text-align: right;
+      overflow-wrap: anywhere;
+    }
+
+    .status-error {
+      color: #ffbed0;
+    }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 10px;
+    }
+
+    .kpi-card {
+      padding: 12px;
+    }
+
+    .card-title {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .card-value {
+      margin-top: 7px;
+      color: #dcf2ff;
+      font-size: 24px;
+      font-weight: 800;
+      line-height: 1.08;
+      transition: color 180ms ease, text-shadow 180ms ease;
+    }
+
+    .value-updated {
+      color: #ebf8ff;
+      text-shadow: 0 0 14px rgba(84, 172, 255, 0.45);
+    }
+
+    .section {
+      padding: 12px;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .section-title {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 800;
+      color: #d8ecff;
+      letter-spacing: 0.02em;
+    }
+
+    .section-note {
+      color: var(--muted);
+      font-size: 12px;
+      font-family: "Cascadia Mono", "Consolas", monospace;
+    }
+
+    .chart-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .chart-wrap {
+      height: 250px;
+      border-radius: 10px;
+      border: 1px solid var(--border-soft);
+      background: linear-gradient(180deg, rgba(8, 13, 27, 0.84), rgba(8, 13, 27, 0.62));
+      padding: 8px;
+    }
+
+    .chart-wrap canvas {
+      width: 100%;
+      height: 100%;
+    }
+
+    .wallets {
+      display: grid;
+      gap: 10px;
+    }
+
+    .wallet-card {
+      padding: 12px;
+      border: 1px solid var(--border-soft);
+      background: linear-gradient(170deg, rgba(17, 29, 54, 0.84), rgba(8, 14, 28, 0.8));
+      border-radius: 12px;
+    }
+
+    .wallet-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .wallet-id {
+      font-family: "Cascadia Mono", "Consolas", monospace;
+      font-size: 13px;
+      color: #d9efff;
+      overflow-wrap: anywhere;
+    }
+
+    .wallet-accept {
+      color: #bff9de;
+      border: 1px solid rgba(47, 225, 155, 0.42);
+      background: rgba(47, 225, 155, 0.14);
+      border-radius: 999px;
+      padding: 4px 9px;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .wallet-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-bottom: 9px;
+    }
+
+    .wallet-chip {
+      border: 1px solid rgba(130, 196, 255, 0.24);
+      background: rgba(90, 161, 255, 0.1);
+      color: #cfe8ff;
+      border-radius: 999px;
+      padding: 4px 9px;
+      font-size: 11px;
+      font-family: "Cascadia Mono", "Consolas", monospace;
+    }
+
+    .wallet-chip.invalid {
+      color: #ffd4de;
+      border-color: rgba(255, 111, 141, 0.36);
+      background: rgba(255, 111, 141, 0.12);
+    }
+
+    .table-wrap {
+      overflow: auto;
+      -webkit-overflow-scrolling: touch;
+      border: 1px solid var(--border-soft);
+      border-radius: 10px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 860px;
+    }
+
+    thead th {
+      text-align: left;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      border-bottom: 1px solid var(--border-soft);
+      padding: 9px 7px;
+      background: rgba(8, 13, 27, 0.8);
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+
+    tbody td {
+      font-size: 12px;
+      padding: 9px 7px;
+      border-bottom: 1px solid rgba(130, 196, 255, 0.08);
+    }
+
+    tbody tr:nth-child(even) td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .empty-state {
+      border: 1px dashed rgba(130, 196, 255, 0.35);
+      border-radius: 12px;
+      background: rgba(8, 14, 28, 0.5);
+      color: var(--muted);
+      text-align: center;
+      padding: 20px;
+      font-family: "Cascadia Mono", "Consolas", monospace;
+      font-size: 13px;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    @media (max-width: 1260px) {
+      .topbar {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+      }
+
+      .status-group {
+        width: 100%;
+        justify-items: start;
+      }
+
+      .pill-row {
+        justify-content: flex-start;
+      }
+
+      .brand-copy p {
+        max-width: 100%;
+        white-space: normal;
+      }
+    }
+
+    @media (max-width: 980px) {
+      .chart-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .layout {
+        padding: 12px 10px 22px;
+        gap: 10px;
+      }
+
+      .kpi-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .card-value {
+        font-size: 20px;
+      }
+
+      table {
+        min-width: 0;
+        border-collapse: separate;
+        border-spacing: 0 8px;
+      }
+
+      thead {
+        display: none;
+      }
+
+      tbody {
+        display: grid;
+        gap: 8px;
+      }
+
+      tbody tr {
+        display: block;
+        border: 1px solid var(--border-soft);
+        border-radius: 10px;
+        background: rgba(90, 161, 255, 0.08);
+        overflow: hidden;
+      }
+
+      tbody tr:nth-child(even) td {
+        background: transparent;
+      }
+
+      tbody td {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 9px 10px;
+        border-bottom: 1px solid rgba(130, 196, 255, 0.1);
+      }
+
+      tbody td:last-child {
+        border-bottom: 0;
+      }
+
+      tbody td::before {
+        content: attr(data-label);
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      tbody td > span {
+        margin-left: auto;
+        text-align: right;
+        max-width: 62%;
+        overflow-wrap: anywhere;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .kpi-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .brand-logo {
+        height: 46px;
+      }
+
+      .brand-copy h1 {
+        font-size: 20px;
+      }
+    }
+  </style>
 </head>
-<body style="background-color: #fcfcfc;" onload="startFetching()">
-    <div class="container">
-        <div id="metricsContainer"></div>
-    </div>
+<body>
+  <main class="layout">
+    <header class="topbar card">
+      <div class="brand">
+        <img
+          class="brand-logo"
+          src="/crypixpay-icon.png"
+          alt="Cryptix logo"
+          width="199"
+          height="160"
+          decoding="async"
+        >
+        <div class="brand-copy">
+          <h1>Cryptix Bridge Monitor</h1>
+          <p id="metaLine">Waiting for bridge metrics...</p>
+        </div>
+      </div>
+
+      <div class="status-group">
+        <div class="pill-row">
+          <span id="bridgeStatePill" class="pill warn">Bridge: Unknown</span>
+          <span id="walletCountPill" class="pill">Wallets: 0</span>
+          <span id="workerCountPill" class="pill">Workers: 0</span>
+        </div>
+        <div id="updatedNote" class="status-note">Updated: -</div>
+      </div>
+    </header>
+
+    <section id="kpiGrid" class="kpi-grid"></section>
+
+    <section class="card section">
+      <div class="section-head">
+        <h2 class="section-title">Wallet Share Overview</h2>
+        <div id="chartNote" class="section-note">Live update every 5s</div>
+      </div>
+      <div class="chart-grid">
+        <div class="chart-wrap">
+          <canvas id="validSharesChart"></canvas>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="invalidSharesChart"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <section class="card section">
+      <div class="section-head">
+        <h2 class="section-title">Wallet & Worker Details</h2>
+      </div>
+      <div id="wallets" class="wallets"></div>
+      <div id="emptyState" class="empty-state">No wallet metrics yet. Waiting for miners...</div>
+    </section>
+  </main>
+
+  <script>
+    const REFRESH_MS = 5000;
+
+    const uiState = {
+      charts: { valid: null, invalid: null },
+      walletCards: new Map(),
+      kpis: new Map(),
+      refreshInFlight: false,
+      lastSnapshot: null
+    };
+
+    const kpiConfig = [
+      { id: "network_hashrate", label: "Network Hashrate", format: (snapshot) => formatHashrate(snapshot.network?.hashrate_hs || 0) },
+      { id: "network_difficulty", label: "Network Difficulty", format: (snapshot) => formatInt(snapshot.network?.difficulty || 0) },
+      { id: "valid_shares", label: "Valid Shares", format: (snapshot) => formatInt(snapshot.totals?.valid_shares || 0) },
+      { id: "invalid_shares", label: "Invalid Shares", format: (snapshot) => formatInt(snapshot.totals?.invalid_shares || 0) },
+      { id: "jobs", label: "Jobs Sent", format: (snapshot) => formatInt(snapshot.totals?.jobs || 0) },
+      { id: "blocks", label: "Blocks Mined", format: (snapshot) => formatInt(snapshot.totals?.blocks_mined || 0) },
+      { id: "share_diff", label: "Share Difficulty Sum", format: (snapshot) => formatFloat(snapshot.totals?.share_difficulty || 0, 2) },
+      { id: "acceptance", label: "Acceptance Rate", format: (snapshot) => formatPercent(acceptanceRate(snapshot), 2) }
+    ];
+
+    function formatInt(value) {
+      return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Number(value || 0));
+    }
+
+    function formatFloat(value, digits = 2) {
+      return new Intl.NumberFormat("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(Number(value || 0));
+    }
+
+    function formatPercent(value, digits = 2) {
+      return `${formatFloat(value, digits)}%`;
+    }
+
+    function formatHashrate(hsValue) {
+      const units = ["H/s", "kH/s", "MH/s", "GH/s", "TH/s", "PH/s"];
+      let value = Number(hsValue || 0);
+      let unit = 0;
+      while (value >= 1000 && unit < units.length - 1) {
+        value /= 1000;
+        unit += 1;
+      }
+      return `${formatFloat(value, 2)} ${units[unit]}`;
+    }
+
+    function acceptanceRate(snapshot) {
+      const valid = Number(snapshot.totals?.valid_shares || 0);
+      const invalid = Number(snapshot.totals?.invalid_shares || 0);
+      const total = valid + invalid;
+      return total <= 0 ? 0 : (valid / total) * 100;
+    }
+
+    function setText(el, text) {
+      if (!el) return;
+      if (el.textContent === text) return;
+      el.textContent = text;
+      el.classList.remove("value-updated");
+      void el.offsetWidth;
+      el.classList.add("value-updated");
+    }
+
+    function initKpis() {
+      const grid = document.getElementById("kpiGrid");
+      for (const item of kpiConfig) {
+        const card = document.createElement("article");
+        card.className = "card kpi-card";
+
+        const title = document.createElement("div");
+        title.className = "card-title";
+        title.textContent = item.label;
+
+        const value = document.createElement("div");
+        value.className = "card-value";
+        value.textContent = "-";
+
+        card.appendChild(title);
+        card.appendChild(value);
+        grid.appendChild(card);
+        uiState.kpis.set(item.id, value);
+      }
+    }
+
+    function updateKpis(snapshot) {
+      for (const item of kpiConfig) {
+        const target = uiState.kpis.get(item.id);
+        setText(target, item.format(snapshot));
+      }
+    }
+
+    function upsertBarChart(chartRef, canvasId, labels, values, label, color) {
+      const ctx = document.getElementById(canvasId).getContext("2d");
+      if (!chartRef) {
+        return new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels,
+            datasets: [{
+              label,
+              data: values,
+              borderRadius: 8,
+              borderSkipped: false,
+              backgroundColor: color
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 260, easing: "easeOutQuad" },
+            plugins: {
+              legend: { display: false }
+            },
+            scales: {
+              x: {
+                ticks: { color: "rgba(232, 240, 255, 0.86)" },
+                grid: { color: "rgba(130, 196, 255, 0.1)" }
+              },
+              y: {
+                beginAtZero: true,
+                ticks: { color: "rgba(232, 240, 255, 0.86)" },
+                grid: { color: "rgba(130, 196, 255, 0.1)" }
+              }
+            }
+          }
+        });
+      }
+      chartRef.data.labels = labels;
+      chartRef.data.datasets[0].data = values;
+      chartRef.update();
+      return chartRef;
+    }
+
+    function updateCharts(wallets) {
+      const labels = wallets.map((w) => trimWallet(w.wallet));
+      const validData = wallets.map((w) => Number(w.totals?.valid_shares || 0));
+      const invalidData = wallets.map((w) => Number(w.totals?.invalid_shares || 0));
+
+      uiState.charts.valid = upsertBarChart(
+        uiState.charts.valid,
+        "validSharesChart",
+        labels,
+        validData,
+        "Valid Shares",
+        "rgba(47, 225, 155, 0.72)"
+      );
+      uiState.charts.invalid = upsertBarChart(
+        uiState.charts.invalid,
+        "invalidSharesChart",
+        labels,
+        invalidData,
+        "Invalid Shares",
+        "rgba(255, 111, 141, 0.72)"
+      );
+    }
+
+    function trimWallet(wallet) {
+      if (!wallet || wallet.length <= 18) return wallet || "-";
+      return `${wallet.slice(0, 10)}...${wallet.slice(-6)}`;
+    }
+
+    function buildWalletCard(walletId) {
+      const container = document.getElementById("wallets");
+      const card = document.createElement("article");
+      card.className = "wallet-card";
+      card.dataset.wallet = walletId;
+
+      const head = document.createElement("div");
+      head.className = "wallet-head";
+      const idEl = document.createElement("div");
+      idEl.className = "wallet-id";
+      idEl.textContent = walletId;
+      const acceptEl = document.createElement("div");
+      acceptEl.className = "wallet-accept";
+      acceptEl.textContent = "Acceptance 0.00%";
+      head.append(idEl, acceptEl);
+
+      const chips = document.createElement("div");
+      chips.className = "wallet-chips";
+      const chipKeys = ["workers", "valid", "invalid", "blocks", "jobs", "diff", "invalid_types"];
+      const chipRefs = new Map();
+      for (const key of chipKeys) {
+        const chip = document.createElement("span");
+        chip.className = `wallet-chip${key === "invalid_types" ? " invalid" : ""}`;
+        chip.textContent = "-";
+        chips.appendChild(chip);
+        chipRefs.set(key, chip);
+      }
+
+      const wrap = document.createElement("div");
+      wrap.className = "table-wrap";
+      const table = document.createElement("table");
+      table.innerHTML = `
+        <thead>
+          <tr>
+            <th>Worker</th>
+            <th>IP</th>
+            <th>Miner</th>
+            <th>Valid</th>
+            <th>Invalid</th>
+            <th>Share Diff</th>
+            <th>Jobs</th>
+            <th>Blocks</th>
+            <th>Invalid Breakdown</th>
+          </tr>
+        </thead>
+      `;
+      const tbody = document.createElement("tbody");
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+
+      card.append(head, chips, wrap);
+      container.appendChild(card);
+
+      const walletRef = {
+        card,
+        id: idEl,
+        accept: acceptEl,
+        chips: chipRefs,
+        tbody,
+        rows: new Map()
+      };
+      uiState.walletCards.set(walletId, walletRef);
+      return walletRef;
+    }
+
+    function ensureWalletCard(walletId) {
+      const existing = uiState.walletCards.get(walletId);
+      if (existing) return existing;
+      return buildWalletCard(walletId);
+    }
+
+    function workerInvalidSummary(invalidByType) {
+      const entries = Object.entries(invalidByType || {});
+      if (entries.length === 0) return "none";
+      return entries.map(([kind, value]) => `${kind}: ${formatInt(value)}`).join(" | ");
+    }
+
+    function setRowCell(cell, value) {
+      setText(cell.value, String(value));
+    }
+
+    function createWorkerRow() {
+      const row = document.createElement("tr");
+      const labels = ["Worker", "IP", "Miner", "Valid", "Invalid", "Share Diff", "Jobs", "Blocks", "Invalid Breakdown"];
+      const keys = ["worker", "ip", "miner", "valid", "invalid", "diff", "jobs", "blocks", "invalidTypes"];
+      const refs = {};
+
+      for (let i = 0; i < labels.length; i++) {
+        const td = document.createElement("td");
+        td.setAttribute("data-label", labels[i]);
+        const span = document.createElement("span");
+        td.appendChild(span);
+        row.appendChild(td);
+        refs[keys[i]] = { td, value: span };
+      }
+
+      return { row, refs };
+    }
+
+    function updateWorkerRows(walletRef, workers) {
+      const orderedWorkers = [...workers].sort((a, b) => {
+        const left = `${a.worker}|${a.ip}`;
+        const right = `${b.worker}|${b.ip}`;
+        return left.localeCompare(right);
+      });
+      const seen = new Set();
+
+      if (orderedWorkers.length === 0) {
+        walletRef.tbody.innerHTML = `<tr><td colspan="9"><span class="muted">No workers reported yet</span></td></tr>`;
+        walletRef.rows.clear();
+        return;
+      }
+
+      if (walletRef.rows.size === 0 && walletRef.tbody.children.length > 0) {
+        walletRef.tbody.innerHTML = "";
+      }
+
+      for (const worker of orderedWorkers) {
+        const key = `${worker.worker}|${worker.ip}|${worker.miner}`;
+        seen.add(key);
+        let rowRef = walletRef.rows.get(key);
+        if (!rowRef) {
+          rowRef = createWorkerRow();
+          walletRef.rows.set(key, rowRef);
+        }
+
+        setRowCell(rowRef.refs.worker, worker.worker || "anonymous");
+        setRowCell(rowRef.refs.ip, worker.ip || "unknown");
+        setRowCell(rowRef.refs.miner, worker.miner || "unknown");
+        setRowCell(rowRef.refs.valid, formatInt(worker.valid_shares || 0));
+        setRowCell(rowRef.refs.invalid, formatInt(worker.invalid_shares || 0));
+        setRowCell(rowRef.refs.diff, formatFloat(worker.share_difficulty || 0, 2));
+        setRowCell(rowRef.refs.jobs, formatInt(worker.jobs || 0));
+        setRowCell(rowRef.refs.blocks, formatInt(worker.blocks_mined || 0));
+        setRowCell(rowRef.refs.invalidTypes, workerInvalidSummary(worker.invalid_by_type || {}));
+
+        walletRef.tbody.appendChild(rowRef.row);
+      }
+
+      for (const [key, rowRef] of walletRef.rows.entries()) {
+        if (seen.has(key)) continue;
+        rowRef.row.remove();
+        walletRef.rows.delete(key);
+      }
+    }
+
+    function updateWalletCard(walletRef, wallet) {
+      const totals = wallet.totals || {};
+      setText(walletRef.id, wallet.wallet || "-");
+      setText(walletRef.accept, `Acceptance ${formatPercent(wallet.acceptance_rate || 0, 2)}`);
+      setText(walletRef.chips.get("workers"), `Workers ${formatInt(wallet.worker_count || 0)}`);
+      setText(walletRef.chips.get("valid"), `Valid ${formatInt(totals.valid_shares || 0)}`);
+      setText(walletRef.chips.get("invalid"), `Invalid ${formatInt(totals.invalid_shares || 0)}`);
+      setText(walletRef.chips.get("blocks"), `Blocks ${formatInt(totals.blocks_mined || 0)}`);
+      setText(walletRef.chips.get("jobs"), `Jobs ${formatInt(totals.jobs || 0)}`);
+      setText(walletRef.chips.get("diff"), `Diff ${formatFloat(totals.share_difficulty || 0, 2)}`);
+      setText(walletRef.chips.get("invalid_types"), `Invalid Types ${workerInvalidSummary(totals.invalid_by_type || {})}`);
+      updateWorkerRows(walletRef, wallet.workers || []);
+    }
+
+    function syncWalletCards(wallets) {
+      const sortedWallets = [...wallets].sort((a, b) => (a.wallet || "").localeCompare(b.wallet || ""));
+      const seen = new Set();
+
+      for (const wallet of sortedWallets) {
+        const walletId = wallet.wallet || "unknown-wallet";
+        seen.add(walletId);
+        const walletRef = ensureWalletCard(walletId);
+        updateWalletCard(walletRef, wallet);
+        document.getElementById("wallets").appendChild(walletRef.card);
+      }
+
+      for (const [walletId, walletRef] of uiState.walletCards.entries()) {
+        if (seen.has(walletId)) continue;
+        walletRef.card.remove();
+        uiState.walletCards.delete(walletId);
+      }
+
+      document.getElementById("emptyState").classList.toggle("hidden", sortedWallets.length > 0);
+    }
+
+    function updateStatus(snapshot, errorMessage) {
+      const bridgePill = document.getElementById("bridgeStatePill");
+      const walletPill = document.getElementById("walletCountPill");
+      const workerPill = document.getElementById("workerCountPill");
+      const updatedNote = document.getElementById("updatedNote");
+      const metaLine = document.getElementById("metaLine");
+      const chartNote = document.getElementById("chartNote");
+
+      const wallets = snapshot.wallets || [];
+      const workerCount = wallets.reduce((sum, wallet) => sum + Number(wallet.worker_count || 0), 0);
+      const isOnline = !errorMessage && snapshot.status === "online";
+
+      bridgePill.classList.remove("ok", "warn", "bad");
+      if (isOnline) {
+        bridgePill.classList.add("ok");
+        bridgePill.textContent = "Bridge: Online";
+      } else {
+        bridgePill.classList.add("bad");
+        bridgePill.textContent = "Bridge: Offline";
+      }
+
+      walletPill.textContent = `Wallets: ${formatInt(wallets.length)}`;
+      workerPill.textContent = `Workers: ${formatInt(workerCount)}`;
+
+      const updated = snapshot.updated_at_unix ? new Date(snapshot.updated_at_unix * 1000).toLocaleString() : "-";
+      updatedNote.textContent = `Updated: ${updated}`;
+      updatedNote.classList.toggle("status-error", Boolean(errorMessage));
+
+      if (errorMessage) {
+        metaLine.textContent = `Bridge URL: ${snapshot.bridge_metrics_url || "unknown"} | Error: ${errorMessage}`;
+        chartNote.textContent = "Last known data shown (bridge currently unreachable)";
+      } else {
+        metaLine.textContent = `Bridge URL: ${snapshot.bridge_metrics_url || "unknown"}`;
+        chartNote.textContent = "Live update every 5s";
+      }
+    }
+
+    async function fetchSnapshot() {
+      const response = await fetch("/api/snapshot", { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(`API returned ${response.status}`);
+      }
+      return response.json();
+    }
+
+    async function refreshLoop() {
+      while (true) {
+        if (!uiState.refreshInFlight) {
+          uiState.refreshInFlight = true;
+          try {
+            const snapshot = await fetchSnapshot();
+            updateStatus(snapshot, null);
+            updateKpis(snapshot);
+            updateCharts(snapshot.wallets || []);
+            syncWalletCards(snapshot.wallets || []);
+            uiState.lastSnapshot = snapshot;
+          } catch (error) {
+            const fallbackSnapshot = uiState.lastSnapshot || {
+              status: "offline",
+              bridge_metrics_url: "unavailable",
+              wallets: [],
+              updated_at_unix: Math.floor(Date.now() / 1000)
+            };
+            updateStatus(fallbackSnapshot, error.message || String(error));
+          } finally {
+            uiState.refreshInFlight = false;
+          }
+        }
+        await new Promise((resolve) => setTimeout(resolve, REFRESH_MS));
+      }
+    }
+
+    initKpis();
+    refreshLoop();
+  </script>
 </body>
 </html>
